@@ -4,24 +4,37 @@ import numpy as np
 import yfinance as yf
 import plotly.graph_objects as go
 
+# =========================
+# PAGE STYLE (LIGHT UI)
+# =========================
+
 st.set_page_config(layout="wide")
 
+st.markdown("""
+<style>
+.stApp {
+    background-color: #f7f9fc;
+}
+.block-container {
+    padding-top: 1rem;
+}
+</style>
+""", unsafe_allow_html=True)
+
+st.title("📊 Trading Research Desk")
+
 # =========================
-# CONFIG
+# DATA SETS
 # =========================
 
-WATCHLIST = [
-    "AAPL","MSFT","NVDA","TSLA",
-    "AMZN","META","GOOGL","AMD",
-    "PLTR","NFLX","COIN","MSTR"
-]
+WATCHLIST = ["AAPL","MSFT","NVDA","TSLA","AMZN","META","GOOGL","AMD","PLTR","NFLX","COIN","MSTR"]
 
 HOT = ["SMCI","ARM","SNOW","NET","SHOP","RDDT","CRWD","AVGO"]
 
-OVERLAYS = ["EMA20", "EMA50", "EMA200"]
+OVERLAYS = ["EMA20","EMA50","EMA200"]
 
 # =========================
-# DATA
+# LOAD DATA
 # =========================
 
 @st.cache_data(ttl=300)
@@ -31,7 +44,7 @@ def load(ticker):
     df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
     return df.dropna()
 
-def add_ind(df):
+def ind(df):
     df["EMA20"] = df["Close"].ewm(span=20).mean()
     df["EMA50"] = df["Close"].ewm(span=50).mean()
     df["EMA200"] = df["Close"].ewm(span=200).mean()
@@ -47,77 +60,83 @@ def add_ind(df):
 
     return df.dropna()
 
-def summarize(df):
+# =========================
+# ADVANCED PROBABILITY MODEL
+# =========================
+
+def probability(df, spy_df):
+
+    last = df.iloc[-1]
+
+    trend = 1 if last["EMA20"] > last["EMA50"] else 0
+    strong_trend = 1 if last["EMA50"] > last["EMA200"] else 0
+
+    momentum = 1 if 40 < last["RSI"] < 70 else 0
+
+    vol_shock = 1 if last["RVOL"] > 1.5 else 0
+
+    spy_align = 1 if spy_df["Close"].iloc[-1] < spy_df["Close"].iloc[-20] else 0
+
+    score = (
+        trend * 30 +
+        strong_trend * 20 +
+        momentum * 20 +
+        vol_shock * 20 +
+        spy_align * 10
+    )
+
+    return min(92, max(25, score))
+
+# =========================
+# SUMMARY
+# =========================
+
+def summarize(df, spy):
+
     last = df.iloc[-1]
     prev = df.iloc[-2]
 
     change = ((last["Close"] - prev["Close"]) / prev["Close"]) * 100
 
-    score = 0
-    if last["EMA20"] > last["EMA50"]:
-        score += 1
-    if last["RSI"] < 70:
-        score += 1
-    if last["RVOL"] > 1.5:
-        score += 1
-
-    prob = min(85, 35 + score * 15)
+    prob = probability(df, spy)
 
     return {
         "price": round(last["Close"],2),
         "change": round(change,2),
         "rsi": round(last["RSI"],1),
         "rvol": round(last["RVOL"],2),
-        "prob": round(prob,1),
         "ema20": round(last["EMA20"],2),
         "ema50": round(last["EMA50"],2),
-        "ema200": round(last["EMA200"],2)
+        "ema200": round(last["EMA200"],2),
+        "prob": round(prob,1)
     }
 
 # =========================
 # CHART
 # =========================
 
-def chart(df, ticker, overlays, show_spy):
+def chart(df, overlays):
 
     fig = go.Figure()
 
     fig.add_trace(go.Scatter(
-        x=df["Date"], y=df["Close"],
-        name="Price", line=dict(color="black")
+        x=df["Date"],
+        y=df["Close"],
+        name="Price",
+        line=dict(color="#111827", width=2)
     ))
 
     if "EMA20" in overlays:
-        fig.add_trace(go.Scatter(
-            x=df["Date"], y=df["EMA20"],
-            name="EMA20"
-        ))
-
+        fig.add_trace(go.Scatter(x=df["Date"], y=df["EMA20"], name="EMA20"))
     if "EMA50" in overlays:
-        fig.add_trace(go.Scatter(
-            x=df["Date"], y=df["EMA50"],
-            name="EMA50"
-        ))
-
+        fig.add_trace(go.Scatter(x=df["Date"], y=df["EMA50"], name="EMA50"))
     if "EMA200" in overlays:
-        fig.add_trace(go.Scatter(
-            x=df["Date"], y=df["EMA200"],
-            name="EMA200"
-        ))
-
-    if show_spy:
-        spy = load("SPY")
-        fig.add_trace(go.Scatter(
-            x=spy["Date"], y=spy["Close"],
-            name="SPY",
-            opacity=0.4
-        ))
+        fig.add_trace(go.Scatter(x=df["Date"], y=df["EMA200"], name="EMA200"))
 
     fig.update_layout(
         template="plotly_white",
-        height=550,
-        margin=dict(l=10,r=10,t=40,b=10),
-        title=f"{ticker} — 2Y Chart"
+        height=520,
+        margin=dict(l=10,r=10,t=40,b=10)
     )
 
     return fig
@@ -133,74 +152,115 @@ if "selected" not in st.session_state:
 # LAYOUT
 # =========================
 
-left, right = st.columns([1, 3])
+left, right = st.columns([1,3])
 
 # =========================
-# LEFT: CHECKERBOARD
+# LEFT: COLOR CHECKERBOARD
 # =========================
 
 with left:
 
-    st.subheader("Watchlist")
+    st.subheader("📌 Watchlist")
 
     grid = st.columns(3)
 
     for i, t in enumerate(WATCHLIST):
 
-        df = add_ind(load(t))
-        s = summarize(df)
+        df = ind(load(t))
+        spy = ind(load("SPY"))
 
-        color = "🟢" if s["change"] >= 0 else "🔴"
+        s = summarize(df, spy)
+
+        bg = "#dcfce7" if s["change"] > 0 else "#fee2e2"
 
         with grid[i % 3]:
 
-            if st.button(f"{t} {color} {s['change']}%", key=t):
+            st.markdown(
+                f"""
+                <div style="
+                    padding:10px;
+                    border-radius:10px;
+                    background:{bg};
+                    text-align:center;
+                    margin-bottom:8px;
+                ">
+                <b>{t}</b><br>
+                {s['change']}%
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            if st.button("Select", key=t):
                 st.session_state.selected = t
 
     st.divider()
 
-    st.subheader("Hot Movers")
+    st.subheader("🔥 Hot Movers")
 
     grid2 = st.columns(3)
 
     for i, t in enumerate(HOT):
 
-        df = add_ind(load(t))
-        s = summarize(df)
+        df = ind(load(t))
+        spy = ind(load("SPY"))
+        s = summarize(df, spy)
 
-        color = "🟢" if s["change"] >= 0 else "🔴"
+        bg = "#dcfce7" if s["change"] > 0 else "#fee2e2"
 
         with grid2[i % 3]:
 
-            if st.button(f"{t} {color} {s['change']}%", key=f"hot_{t}"):
+            st.markdown(
+                f"""
+                <div style="
+                    padding:10px;
+                    border-radius:10px;
+                    background:{bg};
+                    text-align:center;
+                    margin-bottom:8px;
+                ">
+                <b>{t}</b><br>
+                {s['change']}%
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            if st.button("Trade", key=f"hot_{t}"):
                 st.session_state.selected = t
 
 # =========================
-# RIGHT: RESEARCH
+# RIGHT: RESEARCH ENGINE
 # =========================
 
 with right:
 
     t = st.session_state.selected
 
-    df = add_ind(load(t))
-    s = summarize(df)
+    df = ind(load(t))
+    spy = ind(load("SPY"))
+
+    s = summarize(df, spy)
 
     st.header(f"{t}")
 
-    # METRICS ROW
-    m1,m2,m3,m4,m5,m6,m7 = st.columns(7)
+    # =====================
+    # METRICS
+    # =====================
 
-    m1.metric("Price", s["price"])
-    m2.metric("Change %", s["change"])
-    m3.metric("RSI", s["rsi"])
-    m4.metric("RVOL", s["rvol"])
-    m5.metric("Prob%", s["prob"])
-    m6.metric("EMA20", s["ema20"])
-    m7.metric("EMA50/200", f"{s['ema50']} / {s['ema200']}")
+    c1,c2,c3,c4,c5,c6,c7 = st.columns(7)
 
+    c1.metric("Price", s["price"])
+    c2.metric("Change%", s["change"])
+    c3.metric("RSI", s["rsi"])
+    c4.metric("RVOL", s["rvol"])
+    c5.metric("Prob%", s["prob"])
+    c6.metric("EMA20", s["ema20"])
+    c7.metric("EMA50/200", f"{s['ema50']} | {s['ema200']}")
+
+    # =====================
     # CONTROLS
-    st.subheader("Chart Controls")
+    # =====================
 
     overlays = st.multiselect(
         "Overlays",
@@ -208,59 +268,41 @@ with right:
         default=["EMA20","EMA50"]
     )
 
-    show_spy = st.checkbox("Overlay SPY", value=False)
+    st.plotly_chart(chart(df, overlays), use_container_width=True)
 
-    st.plotly_chart(
-        chart(df, t, overlays, show_spy),
-        use_container_width=True
-    )
+    # =====================
+    # DEEP RESEARCH ENGINE
+    # =====================
 
-    # =========================
-    # EDUCATION (RICH + NON-REPETITIVE)
-    # =========================
+    with st.expander("🧠 Deep Thesis Engine", expanded=True):
 
-    with st.expander("Research & Thesis (Deep)", expanded=True):
+        st.markdown("### Regime Detection")
 
-        st.markdown("### Market Structure")
+        regime = "Trending Up" if s["ema20"] > s["ema50"] else "Weak / Transition"
 
-        st.write(
-            f"{t} is currently showing a "
-            f"{'bullish' if s['ema20'] > s['ema50'] else 'bearish'} trend regime."
-        )
+        st.write(f"Market state: **{regime}**")
 
-        st.markdown("### Momentum Context")
+        st.markdown("### Momentum Quality")
 
         if s["rsi"] < 30:
-            st.write("Oversold rebound setup potential.")
+            st.write("Deep oversold — reversal candidate")
         elif s["rsi"] > 70:
-            st.write("Overbought risk zone — momentum exhaustion possible.")
+            st.write("Overheated — pullback risk elevated")
         else:
-            st.write("Neutral momentum — continuation depends on volume confirmation.")
+            st.write("Healthy momentum range")
 
-        st.markdown("### Volume Participation")
+        st.markdown("### Volume Behavior")
 
         if s["rvol"] > 1.5:
-            st.write("Institutional participation likely increasing (high RVOL).")
+            st.success("Institutional participation detected")
         else:
-            st.write("Normal participation — no breakout volume detected.")
+            st.write("Normal participation")
 
-        st.markdown("### Investment Thesis (Auto-Generated)")
+        st.markdown("### Investment Thesis")
 
-        thesis_score = (
-            (s["ema20"] > s["ema50"]) +
-            (s["rsi"] < 70) +
-            (s["rvol"] > 1.2)
-        )
-
-        if thesis_score >= 3:
-            st.success("Strong trend continuation candidate (low-to-medium risk momentum setup).")
-        elif thesis_score == 2:
-            st.info("Mixed signals — tactical trade only, not conviction setup.")
+        if s["prob"] > 70:
+            st.success("High probability continuation setup")
+        elif s["prob"] > 50:
+            st.info("Moderate setup — wait for confirmation")
         else:
-            st.warning("Weak structure — avoid unless catalyst-driven.")
-
-        st.markdown("### Risk Notes")
-
-        st.write("- Always confirm breakout with volume expansion")
-        st.write("- Avoid chasing extended RSI > 75 without pullback")
-        st.write("- SPY correlation matters for macro regime")
+            st.warning("Low quality setup — avoid entry")
