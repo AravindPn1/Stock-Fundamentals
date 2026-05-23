@@ -52,14 +52,14 @@ def ind(df):
     return df.dropna()
 
 # =========================
-# WATCHLISTS
+# DATASETS
 # =========================
 
 WATCHLIST = ["AAPL","MSFT","NVDA","TSLA","AMZN","META","GOOGL","AMD","PLTR","NFLX","COIN","MSTR"]
 HOT = ["SMCI","ARM","SNOW","NET","SHOP","RDDT","CRWD","AVGO"]
 
 # =========================
-# STYLE (REDUCED WHITESPACE LEFT)
+# STYLE (CLEAN + LIGHT + POP)
 # =========================
 
 st.markdown("""
@@ -69,37 +69,43 @@ st.markdown("""
     background: linear-gradient(135deg,#f8fafc,#eef2ff,#f1f5f9);
 }
 
-/* LEFT PANEL COMPACT */
-.leftBox {
-    background: rgba(255,255,255,0.85);
+/* LEFT PANEL */
+.leftPane {
+    background: rgba(255,255,255,0.9);
     border-radius: 18px;
-    padding: 6px;
+    padding: 10px;
     height: 92vh;
-    overflow: hidden;
 }
 
-/* TILE */
+/* TILE LOOK */
 .tile {
-    padding: 8px;
-    border-radius: 14px;
+    padding: 10px;
+    border-radius: 16px;
     text-align: center;
-    font-weight: 600;
+    font-weight: 700;
     color: white;
-    margin: 2px;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.12);
+    margin: 4px;
     cursor: pointer;
+    box-shadow: 0 6px 14px rgba(0,0,0,0.12);
 }
 
-/* TEXT SMALLER */
-.small {
-    font-size: 12px;
+/* RADIO HIDE BULLETS */
+div[role="radiogroup"] > label {
+    background: transparent !important;
+}
+
+/* RIGHT PANEL */
+.rightPane {
+    background: rgba(255,255,255,0.92);
+    border-radius: 18px;
+    padding: 16px;
 }
 
 </style>
 """, unsafe_allow_html=True)
 
 # =========================
-# CHART (UNCHANGED)
+# CHART
 # =========================
 
 def chart(df):
@@ -124,58 +130,49 @@ def chart(df):
 left, right = st.columns([1.05, 3])
 
 # =========================
-# LEFT PANEL (FIXED - NO BUTTONS ANYWHERE)
+# LEFT PANEL (FIXED STRUCTURE)
 # =========================
 
 with left:
 
-    st.markdown("<div class='leftBox'>", unsafe_allow_html=True)
+    st.markdown("<div class='leftPane'>", unsafe_allow_html=True)
 
     st.markdown("### 📊 Watchlist")
 
-    def render_grid(lst):
+    def tile_options(lst):
 
-        cols = st.columns(3)
+        options = lst
+        labels = []
 
-        for i, t in enumerate(lst):
-
+        for t in lst:
             df = ind(load(t))
             last = df.iloc[-1]
             prev = df.iloc[-2]
 
             chg = ((last["Close"] - prev["Close"]) / prev["Close"]) * 100
-            color = "#22c55e" if chg > 0 else "#ef4444"
+            labels.append(f"{t}  |  {chg:.2f}%")
 
-            # TILE ONLY (NO BUTTONS)
-            with cols[i % 3]:
+        choice = st.radio(
+            " ",
+            options=options,
+            format_func=lambda x: labels[options.index(x)],
+            label_visibility="collapsed"
+        )
 
-                clicked = st.container()
+        return choice
 
-                with clicked:
-                    if st.markdown(
-                        f"""
-                        <div class="tile" style="background:{color}">
-                            {t}<br>
-                            <span class="small">{chg:.2f}%</span>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    ):
-                        pass
-
-                # CLICK HANDLER (STREAMLIT SAFE)
-                if st.checkbox("", key=f"sel_{t}"):
-                    st.session_state.ticker = t
-
-    render_grid(WATCHLIST)
+    st.session_state.ticker = tile_options(WATCHLIST)
 
     st.markdown("### 🔥 Hot Movers")
-    render_grid(HOT)
+
+    hot_choice = tile_options(HOT)
+    if hot_choice:
+        st.session_state.ticker = hot_choice
 
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
-# RIGHT PANEL (UNCHANGED LOGIC)
+# RIGHT PANEL
 # =========================
 
 t = st.session_state.ticker
@@ -183,6 +180,8 @@ df = ind(load(t))
 last = df.iloc[-1]
 
 with right:
+
+    st.markdown(f"<div class='rightPane'>", unsafe_allow_html=True)
 
     st.markdown(f"# 📈 {t}")
 
@@ -194,10 +193,21 @@ with right:
 
     st.plotly_chart(chart(df), use_container_width=True)
 
-    with st.expander("🧠 Thesis", expanded=True):
-        st.write("""
-- EMA structure defines regime
+    with st.expander("🧠 Investment Thesis", expanded=True):
+        st.markdown("""
+### Structure
+- EMA alignment defines regime
 - RSI defines momentum pressure
-- RVOL defines participation
-- Combine all → trade bias
+- Volume defines conviction
+
+### Interpretation
+- Trend-following when EMA20 > EMA50
+- Mean reversion when RSI extreme
+- Breakout confirmation requires RVOL spike
+
+### Risk
+- EMA200 breakdown = structural failure
+- Low volume = false breakout risk
 """)
+
+    st.markdown("</div>", unsafe_allow_html=True)
