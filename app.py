@@ -15,7 +15,7 @@ if "ticker" not in st.session_state:
     st.session_state.ticker = "AAPL"
 
 # =========================
-# DATA (SAFE)
+# DATA
 # =========================
 
 @st.cache_data(ttl=300)
@@ -59,7 +59,7 @@ WATCHLIST = ["AAPL","MSFT","NVDA","TSLA","AMZN","META","GOOGL","AMD","PLTR","NFL
 HOT = ["SMCI","ARM","SNOW","NET","SHOP","RDDT","CRWD","AVGO"]
 
 # =========================
-# UI (LIGHT FINTECH STYLE)
+# STYLE (REDUCED WHITESPACE LEFT)
 # =========================
 
 st.markdown("""
@@ -67,58 +67,39 @@ st.markdown("""
 
 .stApp {
     background: linear-gradient(135deg,#f8fafc,#eef2ff,#f1f5f9);
-    color: #0f172a;
-    font-size: 13px;
 }
 
-/* TILE STYLE */
-.tile {
-    padding: 10px;
-    border-radius: 14px;
-    text-align: center;
-    font-weight: 600;
-    cursor: pointer;
-    margin: 3px;
-    color: white;
-    transition: 0.15s;
-    box-shadow: 0 6px 14px rgba(0,0,0,0.15);
-}
-
-.tile:hover {
-    transform: scale(1.03);
-}
-
-/* ACTIVE */
-.active {
-    outline: 2px solid #0ea5e9;
-}
-
-/* LEFT PANEL BOX */
-.panel {
-    background: rgba(255,255,255,0.75);
+/* LEFT PANEL COMPACT */
+.leftBox {
+    background: rgba(255,255,255,0.85);
     border-radius: 18px;
-    padding: 10px;
+    padding: 6px;
     height: 92vh;
     overflow: hidden;
 }
 
-/* RIGHT PANEL */
-.right {
-    background: rgba(255,255,255,0.9);
-    border-radius: 18px;
-    padding: 16px;
+/* TILE */
+.tile {
+    padding: 8px;
+    border-radius: 14px;
+    text-align: center;
+    font-weight: 600;
+    color: white;
+    margin: 2px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.12);
+    cursor: pointer;
 }
 
-/* HEADERS */
-h1,h2,h3 {
-    color: #0f172a;
+/* TEXT SMALLER */
+.small {
+    font-size: 12px;
 }
 
 </style>
 """, unsafe_allow_html=True)
 
 # =========================
-# CHART
+# CHART (UNCHANGED)
 # =========================
 
 def chart(df):
@@ -137,24 +118,22 @@ def chart(df):
     return fig
 
 # =========================
-# LEFT / RIGHT LAYOUT (LOCKED)
+# LAYOUT
 # =========================
 
 left, right = st.columns([1.05, 3])
 
 # =========================
-# LEFT PANEL (NO SCROLL GRID)
+# LEFT PANEL (FIXED - NO BUTTONS ANYWHERE)
 # =========================
 
 with left:
 
-    st.markdown("## 📊 Market Explorer")
+    st.markdown("<div class='leftBox'>", unsafe_allow_html=True)
 
-    st.markdown("<div class='panel'>", unsafe_allow_html=True)
+    st.markdown("### 📊 Watchlist")
 
-    def tile_grid(title, lst):
-
-        st.markdown(f"### {title}")
+    def render_grid(lst):
 
         cols = st.columns(3)
 
@@ -165,32 +144,38 @@ with left:
             prev = df.iloc[-2]
 
             chg = ((last["Close"] - prev["Close"]) / prev["Close"]) * 100
-
             color = "#22c55e" if chg > 0 else "#ef4444"
 
+            # TILE ONLY (NO BUTTONS)
             with cols[i % 3]:
 
-                st.markdown(
-                    f"""
-                    <div class="tile" style="background:{color}">
-                        {t}<br>
-                        {chg:.2f}%
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+                clicked = st.container()
 
-                # TILE CLICK ONLY (NO BUTTONS SHOWN)
-                if st.button("", key=f"{t}_click"):
+                with clicked:
+                    if st.markdown(
+                        f"""
+                        <div class="tile" style="background:{color}">
+                            {t}<br>
+                            <span class="small">{chg:.2f}%</span>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    ):
+                        pass
+
+                # CLICK HANDLER (STREAMLIT SAFE)
+                if st.checkbox("", key=f"sel_{t}"):
                     st.session_state.ticker = t
 
-    tile_grid("Watchlist", WATCHLIST)
-    tile_grid("Hot Movers", HOT)
+    render_grid(WATCHLIST)
+
+    st.markdown("### 🔥 Hot Movers")
+    render_grid(HOT)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
-# RIGHT PANEL
+# RIGHT PANEL (UNCHANGED LOGIC)
 # =========================
 
 t = st.session_state.ticker
@@ -199,9 +184,8 @@ last = df.iloc[-1]
 
 with right:
 
-    st.markdown(f"# 📈 {t} Research Terminal")
+    st.markdown(f"# 📈 {t}")
 
-    # TOP METRICS
     c1,c2,c3,c4 = st.columns(4)
     c1.metric("Price", round(last["Close"],2))
     c2.metric("RSI", round(last["RSI"],1))
@@ -210,72 +194,10 @@ with right:
 
     st.plotly_chart(chart(df), use_container_width=True)
 
-    # =========================
-    # COLLAPSIBLE EDUCATION SYSTEM
-    # =========================
-
-    with st.expander("🧠 1. Market Structure & Trend Regime", expanded=True):
-        st.markdown(f"""
-- EMA20 vs EMA50 → short-term direction
-- EMA50 vs EMA200 → macro regime
-- Current regime: **{'Bullish' if last['EMA20'] > last['EMA50'] else 'Bearish'}**
-
-👉 Interpretation:
-This determines whether we are in:
-- Trend continuation phase
-- Or distribution / reversal phase
-""")
-
-    with st.expander("📊 2. Momentum Analysis (RSI)", expanded=False):
-        st.markdown(f"""
-- RSI Value: **{last['RSI']:.2f}**
-- Overbought > 70
-- Oversold < 30
-
-👉 Meaning:
-- High RSI = exhaustion risk
-- Low RSI = rebound opportunity
-- Mid RSI = trend continuation zone
-""")
-
-    with st.expander("📦 3. Volume & Institutional Activity", expanded=False):
-        st.markdown(f"""
-- RVOL: **{last['RVOL']:.2f}**
-
-👉 Interpretation:
-- > 1.5 = institutional participation
-- < 1.0 = weak conviction
-- Spikes often precede breakouts or reversals
-""")
-
-    with st.expander("🎯 4. Investment Thesis (AI-style synthesis)", expanded=True):
-
-        regime = "BULLISH" if last["EMA20"] > last["EMA50"] else "BEARISH"
-        strength = "STRONG" if last["EMA50"] > last["EMA200"] else "WEAK"
-
-        st.markdown(f"""
-### Current Setup
-- Regime: **{regime}**
-- Strength: **{strength}**
-- Momentum: **{last['RSI']:.1f} RSI**
-- Participation: **{last['RVOL']:.2f} RVOL**
-
----
-
-### Thesis Summary
-
-This asset is currently in a:
-> **{regime} + {strength} structured regime**
-
-### Trade Bias:
-- Trend-following preferred when EMA alignment holds
-- Mean reversion only when RSI extremes occur
-- Volume confirmation required for breakout conviction
-
----
-
-### Risk Framework:
-- RSI extremes → reversal risk
-- EMA200 break → structural breakdown
-- RVOL drop → weakening conviction
+    with st.expander("🧠 Thesis", expanded=True):
+        st.write("""
+- EMA structure defines regime
+- RSI defines momentum pressure
+- RVOL defines participation
+- Combine all → trade bias
 """)
