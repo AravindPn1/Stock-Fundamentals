@@ -11,48 +11,34 @@ from plotly.subplots import make_subplots
 
 st.set_page_config(layout="wide")
 
-# =========================
-# STATE
-# =========================
-
 if "ticker" not in st.session_state:
     st.session_state.ticker = "AAPL"
 
 # =========================
-# DATA LOADER (FIXED FOR YF SHAPES)
+# DATA (SAFE)
 # =========================
 
 @st.cache_data(ttl=300)
 def load(t):
-
     df = yf.download(t, period="2y", interval="1d", auto_adjust=True)
 
-    # FIX: flatten multiindex columns if they exist
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
     df = df.reset_index()
 
-    # FORCE CLEAN NUMERIC TYPES
     for c in ["Open","High","Low","Close","Volume"]:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce")
+        df[c] = pd.to_numeric(df[c], errors="coerce")
 
     return df.dropna()
 
-# =========================
-# INDICATORS (FIXED RVOL BUG)
-# =========================
-
 def ind(df):
-
     df = df.copy()
 
     df["EMA20"] = df["Close"].ewm(span=20).mean()
     df["EMA50"] = df["Close"].ewm(span=50).mean()
     df["EMA200"] = df["Close"].ewm(span=200).mean()
 
-    # RSI
     delta = df["Close"].diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
@@ -60,18 +46,10 @@ def ind(df):
     rs = gain.rolling(14).mean() / loss.rolling(14).mean()
     df["RSI"] = 100 - (100 / (1 + rs))
 
-    # VOLUME SAFE FIX
     df["VOL_MA"] = df["Volume"].rolling(20).mean()
+    df["RVOL"] = np.where(df["VOL_MA"] == 0, 0, df["Volume"] / df["VOL_MA"])
 
-    df["RVOL"] = np.where(
-        df["VOL_MA"] == 0,
-        0,
-        df["Volume"] / df["VOL_MA"]
-    )
-
-    df = df.replace([np.inf, -np.inf], np.nan).dropna()
-
-    return df
+    return df.dropna()
 
 # =========================
 # WATCHLISTS
@@ -81,49 +59,59 @@ WATCHLIST = ["AAPL","MSFT","NVDA","TSLA","AMZN","META","GOOGL","AMD","PLTR","NFL
 HOT = ["SMCI","ARM","SNOW","NET","SHOP","RDDT","CRWD","AVGO"]
 
 # =========================
-# UI STYLE (CLEAN + MODERN)
+# UI (LIGHT FINTECH STYLE)
 # =========================
 
 st.markdown("""
 <style>
 
 .stApp {
-    background: linear-gradient(135deg,#0b1020,#111827,#0b1020);
-    color: white;
+    background: linear-gradient(135deg,#f8fafc,#eef2ff,#f1f5f9);
+    color: #0f172a;
     font-size: 13px;
 }
 
-/* TILE */
+/* TILE STYLE */
 .tile {
     padding: 10px;
     border-radius: 14px;
     text-align: center;
     font-weight: 600;
     cursor: pointer;
-    margin: 4px;
-    transition: 0.2s;
+    margin: 3px;
     color: white;
+    transition: 0.15s;
+    box-shadow: 0 6px 14px rgba(0,0,0,0.15);
 }
 
 .tile:hover {
-    transform: scale(1.05);
-    box-shadow: 0 0 18px rgba(59,130,246,0.5);
+    transform: scale(1.03);
 }
 
+/* ACTIVE */
 .active {
-    outline: 2px solid #22d3ee;
+    outline: 2px solid #0ea5e9;
 }
 
-/* LEFT PANEL CONTAINER */
+/* LEFT PANEL BOX */
 .panel {
-    background: rgba(255,255,255,0.04);
+    background: rgba(255,255,255,0.75);
     border-radius: 18px;
     padding: 10px;
+    height: 92vh;
+    overflow: hidden;
+}
+
+/* RIGHT PANEL */
+.right {
+    background: rgba(255,255,255,0.9);
+    border-radius: 18px;
+    padding: 16px;
 }
 
 /* HEADERS */
 h1,h2,h3 {
-    color: #e5e7eb;
+    color: #0f172a;
 }
 
 </style>
@@ -144,27 +132,27 @@ def chart(df):
 
     fig.add_trace(go.Bar(x=df["Date"], y=df["Volume"], name="Volume"), row=2, col=1)
 
-    fig.update_layout(height=650, template="plotly_dark")
+    fig.update_layout(height=600, template="plotly")
 
     return fig
 
 # =========================
-# LAYOUT (LOCKED LEFT/RIGHT)
+# LEFT / RIGHT LAYOUT (LOCKED)
 # =========================
 
-left, right = st.columns([1.1, 3])
+left, right = st.columns([1.05, 3])
 
 # =========================
-# LEFT PANEL (WATCHLIST + HOT STACKED SAME PAGE)
+# LEFT PANEL (NO SCROLL GRID)
 # =========================
 
 with left:
 
-    st.markdown("## 📌 Market")
+    st.markdown("## 📊 Market Explorer")
 
     st.markdown("<div class='panel'>", unsafe_allow_html=True)
 
-    def render_list(title, lst):
+    def tile_grid(title, lst):
 
         st.markdown(f"### {title}")
 
@@ -177,6 +165,7 @@ with left:
             prev = df.iloc[-2]
 
             chg = ((last["Close"] - prev["Close"]) / prev["Close"]) * 100
+
             color = "#22c55e" if chg > 0 else "#ef4444"
 
             with cols[i % 3]:
@@ -191,82 +180,102 @@ with left:
                     unsafe_allow_html=True
                 )
 
-                st.button(
-                    t,
-                    key=f"sel_{t}",
-                    on_click=lambda x=t: st.session_state.update({"ticker": x})
-                )
+                # TILE CLICK ONLY (NO BUTTONS SHOWN)
+                if st.button("", key=f"{t}_click"):
+                    st.session_state.ticker = t
 
-    render_list("Watchlist", WATCHLIST)
-    render_list("Hot Movers", HOT)
+    tile_grid("Watchlist", WATCHLIST)
+    tile_grid("Hot Movers", HOT)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
-# RIGHT PANEL (RESEARCH)
+# RIGHT PANEL
 # =========================
 
 t = st.session_state.ticker
-
 df = ind(load(t))
-
 last = df.iloc[-1]
 
-st.markdown(f"# 📊 {t} Research")
+with right:
 
-c1,c2,c3,c4 = st.columns(4)
+    st.markdown(f"# 📈 {t} Research Terminal")
 
-c1.metric("Price", round(last["Close"],2))
-c2.metric("RSI", round(last["RSI"],1))
-c3.metric("RVOL", round(last["RVOL"],2))
-c4.metric("EMA Trend", "Bull" if last["EMA20"] > last["EMA50"] else "Bear")
+    # TOP METRICS
+    c1,c2,c3,c4 = st.columns(4)
+    c1.metric("Price", round(last["Close"],2))
+    c2.metric("RSI", round(last["RSI"],1))
+    c3.metric("RVOL", round(last["RVOL"],2))
+    c4.metric("Trend", "Bullish" if last["EMA20"] > last["EMA50"] else "Bearish")
 
-st.plotly_chart(chart(df), use_container_width=True)
+    st.plotly_chart(chart(df), use_container_width=True)
 
-# =========================
-# EDUCATION / THESIS (STABLE)
-# =========================
+    # =========================
+    # COLLAPSIBLE EDUCATION SYSTEM
+    # =========================
 
-with st.expander("🧠 Thesis & Education", expanded=True):
-
-    trend = "BULLISH" if last["EMA20"] > last["EMA50"] else "BEARISH"
-    strength = "STRONG" if last["EMA50"] > last["EMA200"] else "WEAK"
-    rsi_state = "OVERBOUGHT" if last["RSI"] > 70 else "OVERSOLD" if last["RSI"] < 30 else "NEUTRAL"
-
-    st.markdown(f"""
-### Signal Summary
-
-- Trend: **{trend}**
-- Strength: **{strength}**
-- Momentum: **{rsi_state}**
-- RVOL: **{last['RVOL']:.2f}**
-
----
-
-### Interpretation
-
+    with st.expander("🧠 1. Market Structure & Trend Regime", expanded=True):
+        st.markdown(f"""
 - EMA20 vs EMA50 → short-term direction
 - EMA50 vs EMA200 → macro regime
-- RSI → exhaustion vs continuation
-- RVOL → institutional activity
+- Current regime: **{'Bullish' if last['EMA20'] > last['EMA50'] else 'Bearish'}**
+
+👉 Interpretation:
+This determines whether we are in:
+- Trend continuation phase
+- Or distribution / reversal phase
+""")
+
+    with st.expander("📊 2. Momentum Analysis (RSI)", expanded=False):
+        st.markdown(f"""
+- RSI Value: **{last['RSI']:.2f}**
+- Overbought > 70
+- Oversold < 30
+
+👉 Meaning:
+- High RSI = exhaustion risk
+- Low RSI = rebound opportunity
+- Mid RSI = trend continuation zone
+""")
+
+    with st.expander("📦 3. Volume & Institutional Activity", expanded=False):
+        st.markdown(f"""
+- RVOL: **{last['RVOL']:.2f}**
+
+👉 Interpretation:
+- > 1.5 = institutional participation
+- < 1.0 = weak conviction
+- Spikes often precede breakouts or reversals
+""")
+
+    with st.expander("🎯 4. Investment Thesis (AI-style synthesis)", expanded=True):
+
+        regime = "BULLISH" if last["EMA20"] > last["EMA50"] else "BEARISH"
+        strength = "STRONG" if last["EMA50"] > last["EMA200"] else "WEAK"
+
+        st.markdown(f"""
+### Current Setup
+- Regime: **{regime}**
+- Strength: **{strength}**
+- Momentum: **{last['RSI']:.1f} RSI**
+- Participation: **{last['RVOL']:.2f} RVOL**
 
 ---
 
-### Thesis
+### Thesis Summary
 
-This ticker is currently in a:
-> **{trend} + {strength} regime**
+This asset is currently in a:
+> **{regime} + {strength} structured regime**
 
-Meaning:
-- Trend-following strategies favored
-- Avoid counter-trend unless RSI extreme
-- Volume confirms participation when RVOL > 1.5
+### Trade Bias:
+- Trend-following preferred when EMA alignment holds
+- Mean reversion only when RSI extremes occur
+- Volume confirmation required for breakout conviction
 
 ---
 
-### Risk Notes
-
-- RSI > 70 → pullback risk
-- RSI < 30 → rebound opportunity
-- EMA200 break invalidates structure
+### Risk Framework:
+- RSI extremes → reversal risk
+- EMA200 break → structural breakdown
+- RVOL drop → weakening conviction
 """)
