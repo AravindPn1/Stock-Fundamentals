@@ -3,43 +3,61 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import plotly.graph_objects as go
-
-# =========================
-# PAGE STYLE (LIGHT UI)
-# =========================
+from plotly.subplots import make_subplots
 
 st.set_page_config(layout="wide")
 
+# =========================
+# CSS (GLASS UI)
+# =========================
+
 st.markdown("""
 <style>
-.stApp {
-    background-color: #f7f9fc;
-}
+
 .block-container {
     padding-top: 1rem;
 }
+
+/* Glass tile */
+.glass {
+    padding: 10px;
+    margin: 6px;
+    border-radius: 14px;
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.3);
+    text-align:center;
+    cursor:pointer;
+    transition: 0.2s;
+    font-weight: 600;
+}
+
+.glass:hover {
+    transform: scale(1.03);
+}
+
+/* active highlight */
+.active {
+    border: 2px solid #2563eb;
+    box-shadow: 0px 0px 10px rgba(37,99,235,0.4);
+}
+
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 Trading Research Desk")
-
 # =========================
-# DATA SETS
+# DATA
 # =========================
 
 WATCHLIST = ["AAPL","MSFT","NVDA","TSLA","AMZN","META","GOOGL","AMD","PLTR","NFLX","COIN","MSTR"]
 
-HOT = ["SMCI","ARM","SNOW","NET","SHOP","RDDT","CRWD","AVGO"]
-
 OVERLAYS = ["EMA20","EMA50","EMA200"]
 
-# =========================
-# LOAD DATA
-# =========================
+if "selected" not in st.session_state:
+    st.session_state.selected = "AAPL"
 
 @st.cache_data(ttl=300)
-def load(ticker):
-    df = yf.download(ticker, period="2y", interval="1d", auto_adjust=True)
+def load(t):
+    df = yf.download(t, period="2y", interval="1d", auto_adjust=True)
     df = df.reset_index()
     df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
     return df.dropna()
@@ -55,98 +73,86 @@ def ind(df):
     rs = gain.rolling(14).mean() / loss.rolling(14).mean()
     df["RSI"] = 100 - (100 / (1 + rs))
 
-    vavg = df["Volume"].rolling(20).mean()
-    df["RVOL"] = df["Volume"] / vavg
+    df["VOL_MA"] = df["Volume"].rolling(20).mean()
+    df["RVOL"] = df["Volume"] / df["VOL_MA"]
 
     return df.dropna()
 
 # =========================
-# ADVANCED PROBABILITY MODEL
+# PROB MODEL (IMPROVED)
 # =========================
 
-def probability(df, spy_df):
+def prob(df):
 
-    last = df.iloc[-1]
+    l = df.iloc[-1]
 
-    trend = 1 if last["EMA20"] > last["EMA50"] else 0
-    strong_trend = 1 if last["EMA50"] > last["EMA200"] else 0
+    trend = l["EMA20"] > l["EMA50"]
+    strong = l["EMA50"] > l["EMA200"]
 
-    momentum = 1 if 40 < last["RSI"] < 70 else 0
-
-    vol_shock = 1 if last["RVOL"] > 1.5 else 0
-
-    spy_align = 1 if spy_df["Close"].iloc[-1] < spy_df["Close"].iloc[-20] else 0
+    momentum = 40 < l["RSI"] < 70
+    vol = l["RVOL"] > 1.5
 
     score = (
         trend * 30 +
-        strong_trend * 20 +
-        momentum * 20 +
-        vol_shock * 20 +
-        spy_align * 10
+        strong * 20 +
+        momentum * 25 +
+        vol * 25
     )
 
-    return min(92, max(25, score))
+    return min(92, max(20, score))
 
 # =========================
-# SUMMARY
+# CHART (PRICE + VOLUME + RSI)
 # =========================
 
-def summarize(df, spy):
+def chart(df, show_rsi=True, overlays=None):
 
-    last = df.iloc[-1]
-    prev = df.iloc[-2]
+    fig = make_subplots(
+        rows=3 if show_rsi else 2,
+        cols=1,
+        shared_xaxes=True,
+        row_heights=[0.6,0.2,0.2] if show_rsi else [0.7,0.3],
+        vertical_spacing=0.05
+    )
 
-    change = ((last["Close"] - prev["Close"]) / prev["Close"]) * 100
-
-    prob = probability(df, spy)
-
-    return {
-        "price": round(last["Close"],2),
-        "change": round(change,2),
-        "rsi": round(last["RSI"],1),
-        "rvol": round(last["RVOL"],2),
-        "ema20": round(last["EMA20"],2),
-        "ema50": round(last["EMA50"],2),
-        "ema200": round(last["EMA200"],2),
-        "prob": round(prob,1)
-    }
-
-# =========================
-# CHART
-# =========================
-
-def chart(df, overlays):
-
-    fig = go.Figure()
-
+    # PRICE
     fig.add_trace(go.Scatter(
         x=df["Date"],
         y=df["Close"],
         name="Price",
-        line=dict(color="#111827", width=2)
-    ))
+        line=dict(color="black", width=2)
+    ), row=1, col=1)
 
     if "EMA20" in overlays:
-        fig.add_trace(go.Scatter(x=df["Date"], y=df["EMA20"], name="EMA20"))
+        fig.add_trace(go.Scatter(x=df["Date"], y=df["EMA20"], name="EMA20"), row=1, col=1)
     if "EMA50" in overlays:
-        fig.add_trace(go.Scatter(x=df["Date"], y=df["EMA50"], name="EMA50"))
+        fig.add_trace(go.Scatter(x=df["Date"], y=df["EMA50"], name="EMA50"), row=1, col=1)
     if "EMA200" in overlays:
-        fig.add_trace(go.Scatter(x=df["Date"], y=df["EMA200"], name="EMA200"))
+        fig.add_trace(go.Scatter(x=df["Date"], y=df["EMA200"], name="EMA200"), row=1, col=1)
 
-    fig.update_layout(
-        template="plotly_white",
-        height=520,
-        margin=dict(l=10,r=10,t=40,b=10)
-    )
+    # VOLUME
+    fig.add_trace(go.Bar(
+        x=df["Date"],
+        y=df["Volume"],
+        name="Volume",
+        marker_color="rgba(100,100,100,0.4)"
+    ), row=2, col=1)
+
+    # RSI
+    if show_rsi:
+        fig.add_trace(go.Scatter(
+            x=df["Date"],
+            y=df["RSI"],
+            name="RSI",
+            line=dict(color="purple")
+        ), row=3, col=1)
+
+        fig.add_hline(y=70, line_dash="dash", row=3, col=1)
+        fig.add_hline(y=30, line_dash="dash", row=3, col=1)
+
+    fig.update_layout(height=700, template="plotly_white")
 
     return fig
-
-# =========================
-# SESSION
-# =========================
-
-if "selected" not in st.session_state:
-    st.session_state.selected = "AAPL"
 
 # =========================
 # LAYOUT
@@ -155,154 +161,110 @@ if "selected" not in st.session_state:
 left, right = st.columns([1,3])
 
 # =========================
-# LEFT: COLOR CHECKERBOARD
+# LEFT: GLASS GRID (NO BUTTONS)
 # =========================
 
 with left:
 
-    st.subheader("📌 Watchlist")
+    st.subheader("Watchlist")
 
     grid = st.columns(3)
 
     for i, t in enumerate(WATCHLIST):
 
         df = ind(load(t))
-        spy = ind(load("SPY"))
+        last = df.iloc[-1]
+        prev = df.iloc[-2]
 
-        s = summarize(df, spy)
+        chg = ((last["Close"] - prev["Close"]) / prev["Close"]) * 100
 
-        bg = "#dcfce7" if s["change"] > 0 else "#fee2e2"
+        color = "#dcfce7" if chg > 0 else "#fee2e2"
+
+        active = "active" if t == st.session_state.selected else ""
+
+        html = f"""
+        <div class="glass {active}" style="background:{color}"
+             onclick="window.location.href='?ticker={t}'">
+            {t}<br>
+            {round(chg,2)}%
+        </div>
+        """
 
         with grid[i % 3]:
+            st.markdown(html, unsafe_allow_html=True)
 
-            st.markdown(
-                f"""
-                <div style="
-                    padding:10px;
-                    border-radius:10px;
-                    background:{bg};
-                    text-align:center;
-                    margin-bottom:8px;
-                ">
-                <b>{t}</b><br>
-                {s['change']}%
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+# capture click via query param (Streamlit trick)
+import streamlit as st
+query = st.query_params
 
-            if st.button("Select", key=t):
-                st.session_state.selected = t
-
-    st.divider()
-
-    st.subheader("🔥 Hot Movers")
-
-    grid2 = st.columns(3)
-
-    for i, t in enumerate(HOT):
-
-        df = ind(load(t))
-        spy = ind(load("SPY"))
-        s = summarize(df, spy)
-
-        bg = "#dcfce7" if s["change"] > 0 else "#fee2e2"
-
-        with grid2[i % 3]:
-
-            st.markdown(
-                f"""
-                <div style="
-                    padding:10px;
-                    border-radius:10px;
-                    background:{bg};
-                    text-align:center;
-                    margin-bottom:8px;
-                ">
-                <b>{t}</b><br>
-                {s['change']}%
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-            if st.button("Trade", key=f"hot_{t}"):
-                st.session_state.selected = t
+if "ticker" in query:
+    st.session_state.selected = query["ticker"]
 
 # =========================
-# RIGHT: RESEARCH ENGINE
+# RIGHT: ANALYTICS
 # =========================
 
-with right:
+t = st.session_state.selected
 
-    t = st.session_state.selected
+df = ind(load(t))
+p = prob(df)
 
-    df = ind(load(t))
-    spy = ind(load("SPY"))
+st.title(t)
 
-    s = summarize(df, spy)
+c1,c2,c3,c4 = st.columns(4)
 
-    st.header(f"{t}")
+l = df.iloc[-1]
 
-    # =====================
-    # METRICS
-    # =====================
+c1.metric("Price", round(l["Close"],2))
+c2.metric("RSI", round(l["RSI"],1))
+c3.metric("RVOL", round(l["RVOL"],2))
+c4.metric("Prob%", round(p,1))
 
-    c1,c2,c3,c4,c5,c6,c7 = st.columns(7)
+# controls
+show_rsi = st.checkbox("Show RSI", value=True)
+overlays = st.multiselect("Overlays", OVERLAYS, default=["EMA20","EMA50"])
 
-    c1.metric("Price", s["price"])
-    c2.metric("Change%", s["change"])
-    c3.metric("RSI", s["rsi"])
-    c4.metric("RVOL", s["rvol"])
-    c5.metric("Prob%", s["prob"])
-    c6.metric("EMA20", s["ema20"])
-    c7.metric("EMA50/200", f"{s['ema50']} | {s['ema200']}")
+st.plotly_chart(chart(df, show_rsi, overlays), use_container_width=True)
 
-    # =====================
-    # CONTROLS
-    # =====================
+# =========================
+# EDUCATION (RICH + STRUCTURED)
+# =========================
 
-    overlays = st.multiselect(
-        "Overlays",
-        OVERLAYS,
-        default=["EMA20","EMA50"]
-    )
+with st.expander("📘 Deep Research Engine", expanded=True):
 
-    st.plotly_chart(chart(df, overlays), use_container_width=True)
+    st.markdown("### Trend Structure")
 
-    # =====================
-    # DEEP RESEARCH ENGINE
-    # =====================
+    trend = "Bullish" if l["EMA20"] > l["EMA50"] else "Bearish / Weak"
 
-    with st.expander("🧠 Deep Thesis Engine", expanded=True):
+    st.write(f"Current regime: **{trend}**")
 
-        st.markdown("### Regime Detection")
+    st.markdown("### Momentum Interpretation")
 
-        regime = "Trending Up" if s["ema20"] > s["ema50"] else "Weak / Transition"
+    if l["RSI"] > 70:
+        st.write("Overbought zone — risk of pullback increases")
+    elif l["RSI"] < 30:
+        st.write("Oversold — reversal probability rises")
+    else:
+        st.write("Neutral momentum zone")
 
-        st.write(f"Market state: **{regime}**")
+    st.markdown("### Volume Behavior")
 
-        st.markdown("### Momentum Quality")
+    if l["RVOL"] > 1.5:
+        st.success("Strong participation (institutional activity likely)")
+    else:
+        st.write("Normal liquidity conditions")
 
-        if s["rsi"] < 30:
-            st.write("Deep oversold — reversal candidate")
-        elif s["rsi"] > 70:
-            st.write("Overheated — pullback risk elevated")
-        else:
-            st.write("Healthy momentum range")
+    st.markdown("### Investment Thesis")
 
-        st.markdown("### Volume Behavior")
+    if p > 70:
+        st.success("High probability continuation setup (low-risk momentum trade)")
+    elif p > 50:
+        st.info("Moderate setup — wait for confirmation")
+    else:
+        st.warning("Weak setup — avoid or reduce size")
 
-        if s["rvol"] > 1.5:
-            st.success("Institutional participation detected")
-        else:
-            st.write("Normal participation")
+    st.markdown("### Key Risk Notes")
 
-        st.markdown("### Investment Thesis")
-
-        if s["prob"] > 70:
-            st.success("High probability continuation setup")
-        elif s["prob"] > 50:
-            st.info("Moderate setup — wait for confirmation")
-        else:
-            st.warning("Low quality setup — avoid entry")
+    st.write("- Trend break below EMA50 invalidates setup")
+    st.write("- Low RVOL = false breakout risk")
+    st.write("- RSI extremes require confirmation")
