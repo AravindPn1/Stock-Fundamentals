@@ -52,14 +52,14 @@ def ind(df):
     return df.dropna()
 
 # =========================
-# DATASETS
+# WATCHLISTS
 # =========================
 
 WATCHLIST = ["AAPL","MSFT","NVDA","TSLA","AMZN","META","GOOGL","AMD","PLTR","NFLX","COIN","MSTR"]
 HOT = ["SMCI","ARM","SNOW","NET","SHOP","RDDT","CRWD","AVGO"]
 
 # =========================
-# STYLE (CLEAN + LIGHT + POP)
+# UI STYLE (CLEAN + LIGHT FINTECH)
 # =========================
 
 st.markdown("""
@@ -71,27 +71,11 @@ st.markdown("""
 
 /* LEFT PANEL */
 .leftPane {
-    background: rgba(255,255,255,0.9);
+    background: rgba(255,255,255,0.92);
     border-radius: 18px;
-    padding: 10px;
+    padding: 8px;
     height: 92vh;
-}
-
-/* TILE LOOK */
-.tile {
-    padding: 10px;
-    border-radius: 16px;
-    text-align: center;
-    font-weight: 700;
-    color: white;
-    margin: 4px;
-    cursor: pointer;
-    box-shadow: 0 6px 14px rgba(0,0,0,0.12);
-}
-
-/* RADIO HIDE BULLETS */
-div[role="radiogroup"] > label {
-    background: transparent !important;
+    overflow: hidden;
 }
 
 /* RIGHT PANEL */
@@ -99,6 +83,29 @@ div[role="radiogroup"] > label {
     background: rgba(255,255,255,0.92);
     border-radius: 18px;
     padding: 16px;
+}
+
+/* TILE */
+.tile {
+    padding: 9px;
+    border-radius: 14px;
+    text-align: center;
+    font-weight: 700;
+    color: white;
+    margin: 4px;
+    box-shadow: 0 6px 14px rgba(0,0,0,0.12);
+    cursor: pointer;
+}
+
+/* REMOVE RADIO SPACING COMPLETELY */
+div[data-testid="stRadio"] {
+    padding-top: 0rem !important;
+    margin-top: 0rem !important;
+}
+
+/* REMOVE LABEL SPACE */
+div[data-testid="stRadio"] > label {
+    display: none !important;
 }
 
 </style>
@@ -130,7 +137,7 @@ def chart(df):
 left, right = st.columns([1.05, 3])
 
 # =========================
-# LEFT PANEL (FIXED STRUCTURE)
+# LEFT PANEL (FULL FIX - NO WHITE BLOCK, NO EXTRA SPACE)
 # =========================
 
 with left:
@@ -141,9 +148,7 @@ with left:
 
     def tile_options(lst):
 
-        options = lst
         labels = []
-
         for t in lst:
             df = ind(load(t))
             last = df.iloc[-1]
@@ -152,16 +157,20 @@ with left:
             chg = ((last["Close"] - prev["Close"]) / prev["Close"]) * 100
             labels.append(f"{t}  |  {chg:.2f}%")
 
+        # 🚨 CLEAN RADIO (NO LABEL = NO WHITE BLOCK)
         choice = st.radio(
-            " ",
-            options=options,
-            format_func=lambda x: labels[options.index(x)],
+            "",
+            lst,
+            format_func=lambda x: labels[lst.index(x)],
             label_visibility="collapsed"
         )
 
         return choice
 
+    # PUSHED TO TOP (NO EXTRA SPACING)
     st.session_state.ticker = tile_options(WATCHLIST)
+
+    st.markdown("---")
 
     st.markdown("### 🔥 Hot Movers")
 
@@ -172,7 +181,7 @@ with left:
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
-# RIGHT PANEL
+# RIGHT PANEL (UNCHANGED)
 # =========================
 
 t = st.session_state.ticker
@@ -181,7 +190,7 @@ last = df.iloc[-1]
 
 with right:
 
-    st.markdown(f"<div class='rightPane'>", unsafe_allow_html=True)
+    st.markdown("<div class='rightPane'>", unsafe_allow_html=True)
 
     st.markdown(f"# 📈 {t}")
 
@@ -195,19 +204,22 @@ with right:
 
     with st.expander("🧠 Investment Thesis", expanded=True):
         st.markdown("""
-### Structure
+### Market Structure
 - EMA alignment defines regime
-- RSI defines momentum pressure
-- Volume defines conviction
+- Trend = EMA20 vs EMA50
 
-### Interpretation
-- Trend-following when EMA20 > EMA50
-- Mean reversion when RSI extreme
-- Breakout confirmation requires RVOL spike
+### Momentum
+- RSI shows exhaustion vs continuation
 
-### Risk
-- EMA200 breakdown = structural failure
-- Low volume = false breakout risk
+### Volume
+- RVOL confirms institutional participation
+
+---
+
+### Thesis
+- Trend-following in aligned regime
+- Avoid chop when EMA flattening
+- Confirm entries with RVOL spikes
 """)
 
     st.markdown("</div>", unsafe_allow_html=True)
