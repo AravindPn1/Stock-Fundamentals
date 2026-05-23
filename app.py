@@ -5,55 +5,70 @@ import yfinance as yf
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-st.set_page_config(layout="wide")
+# =========================
+# PAGE CONFIG + STYLE
+# =========================
 
-# =========================
-# CSS (GLASS UI)
-# =========================
+st.set_page_config(layout="wide")
 
 st.markdown("""
 <style>
 
-.block-container {
-    padding-top: 1rem;
+/* App background */
+.stApp {
+    background: linear-gradient(180deg, #f5f7fb 0%, #eef2ff 100%);
 }
 
-/* Glass tile */
-.glass {
+/* Left tiles */
+.tile {
     padding: 10px;
     margin: 6px;
-    border-radius: 14px;
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(255,255,255,0.3);
-    text-align:center;
-    cursor:pointer;
-    transition: 0.2s;
+    border-radius: 16px;
+    text-align: center;
     font-weight: 600;
+    cursor: pointer;
+    transition: 0.2s;
+    box-shadow: 0px 3px 10px rgba(0,0,0,0.05);
 }
 
-.glass:hover {
-    transform: scale(1.03);
+/* hover effect */
+.tile:hover {
+    transform: scale(1.05);
 }
 
-/* active highlight */
+/* active selection */
 .active {
     border: 2px solid #2563eb;
-    box-shadow: 0px 0px 10px rgba(37,99,235,0.4);
+    box-shadow: 0px 0px 14px rgba(37,99,235,0.4);
+}
+
+/* header spacing */
+.block-container {
+    padding-top: 1rem;
 }
 
 </style>
 """, unsafe_allow_html=True)
 
 # =========================
-# DATA
+# APP STATE
 # =========================
 
-WATCHLIST = ["AAPL","MSFT","NVDA","TSLA","AMZN","META","GOOGL","AMD","PLTR","NFLX","COIN","MSTR"]
+st.title("📊 Smart Trading Research Desk")
+
+WATCHLIST = [
+    "AAPL","MSFT","NVDA","TSLA","AMZN","META",
+    "GOOGL","AMD","PLTR","NFLX","COIN","MSTR"
+]
 
 OVERLAYS = ["EMA20","EMA50","EMA200"]
 
-if "selected" not in st.session_state:
-    st.session_state.selected = "AAPL"
+if "ticker" not in st.session_state:
+    st.session_state.ticker = "AAPL"
+
+# =========================
+# DATA
+# =========================
 
 @st.cache_data(ttl=300)
 def load(t):
@@ -62,7 +77,7 @@ def load(t):
     df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
     return df.dropna()
 
-def ind(df):
+def indicators(df):
     df["EMA20"] = df["Close"].ewm(span=20).mean()
     df["EMA50"] = df["Close"].ewm(span=50).mean()
     df["EMA200"] = df["Close"].ewm(span=200).mean()
@@ -79,39 +94,39 @@ def ind(df):
     return df.dropna()
 
 # =========================
-# PROB MODEL (IMPROVED)
+# PROBABILITY MODEL v3 (RESTORED + IMPROVED)
 # =========================
 
-def prob(df):
+def probability(df):
 
     l = df.iloc[-1]
 
-    trend = l["EMA20"] > l["EMA50"]
-    strong = l["EMA50"] > l["EMA200"]
+    trend_up = l["EMA20"] > l["EMA50"]
+    trend_strong = l["EMA50"] > l["EMA200"]
 
-    momentum = 40 < l["RSI"] < 70
-    vol = l["RVOL"] > 1.5
+    momentum_ok = 40 < l["RSI"] < 70
+    volume_ok = l["RVOL"] > 1.4
 
     score = (
-        trend * 30 +
-        strong * 20 +
-        momentum * 25 +
-        vol * 25
+        trend_up * 28 +
+        trend_strong * 22 +
+        momentum_ok * 25 +
+        volume_ok * 25
     )
 
-    return min(92, max(20, score))
+    return min(95, max(20, score))
 
 # =========================
 # CHART (PRICE + VOLUME + RSI)
 # =========================
 
-def chart(df, show_rsi=True, overlays=None):
+def chart(df, overlays, show_rsi=True):
 
     fig = make_subplots(
         rows=3 if show_rsi else 2,
         cols=1,
         shared_xaxes=True,
-        row_heights=[0.6,0.2,0.2] if show_rsi else [0.7,0.3],
+        row_heights=[0.6,0.25,0.15] if show_rsi else [0.7,0.3],
         vertical_spacing=0.05
     )
 
@@ -120,7 +135,7 @@ def chart(df, show_rsi=True, overlays=None):
         x=df["Date"],
         y=df["Close"],
         name="Price",
-        line=dict(color="black", width=2)
+        line=dict(color="#111827", width=2)
     ), row=1, col=1)
 
     if "EMA20" in overlays:
@@ -135,7 +150,7 @@ def chart(df, show_rsi=True, overlays=None):
         x=df["Date"],
         y=df["Volume"],
         name="Volume",
-        marker_color="rgba(100,100,100,0.4)"
+        marker_color="rgba(99,102,241,0.35)"
     ), row=2, col=1)
 
     # RSI
@@ -144,24 +159,28 @@ def chart(df, show_rsi=True, overlays=None):
             x=df["Date"],
             y=df["RSI"],
             name="RSI",
-            line=dict(color="purple")
+            line=dict(color="#7c3aed")
         ), row=3, col=1)
 
-        fig.add_hline(y=70, line_dash="dash", row=3, col=1)
-        fig.add_hline(y=30, line_dash="dash", row=3, col=1)
+        fig.add_hline(y=70, line_dash="dash", line_color="red", row=3, col=1)
+        fig.add_hline(y=30, line_dash="dash", line_color="green", row=3, col=1)
 
-    fig.update_layout(height=700, template="plotly_white")
+    fig.update_layout(
+        height=720,
+        template="plotly_white",
+        margin=dict(l=10,r=10,t=30,b=10)
+    )
 
     return fig
 
 # =========================
-# LAYOUT
+# LAYOUT (RESTORED LEFT/RIGHT)
 # =========================
 
-left, right = st.columns([1,3])
+left, right = st.columns([1.1, 3])
 
 # =========================
-# LEFT: GLASS GRID (NO BUTTONS)
+# LEFT PANE (APP-LIKE TILE GRID)
 # =========================
 
 with left:
@@ -172,99 +191,108 @@ with left:
 
     for i, t in enumerate(WATCHLIST):
 
-        df = ind(load(t))
+        df = indicators(load(t))
         last = df.iloc[-1]
         prev = df.iloc[-2]
 
         chg = ((last["Close"] - prev["Close"]) / prev["Close"]) * 100
 
-        color = "#dcfce7" if chg > 0 else "#fee2e2"
+        bg = "#dcfce7" if chg > 0 else "#fee2e2"
+        active = "active" if t == st.session_state.ticker else ""
 
-        active = "active" if t == st.session_state.selected else ""
-
-        html = f"""
-        <div class="glass {active}" style="background:{color}"
-             onclick="window.location.href='?ticker={t}'">
+        tile = f"""
+        <div class="tile {active}" style="background:{bg}"
+            onclick="">
             {t}<br>
             {round(chg,2)}%
         </div>
         """
 
         with grid[i % 3]:
-            st.markdown(html, unsafe_allow_html=True)
+            if st.button(t, key=f"btn_{t}"):
+                st.session_state.ticker = t
 
-# capture click via query param (Streamlit trick)
-import streamlit as st
-query = st.query_params
-
-if "ticker" in query:
-    st.session_state.selected = query["ticker"]
+            st.markdown(tile, unsafe_allow_html=True)
 
 # =========================
-# RIGHT: ANALYTICS
+# RIGHT PANE (RESEARCH)
 # =========================
 
-t = st.session_state.selected
+t = st.session_state.ticker
 
-df = ind(load(t))
-p = prob(df)
-
-st.title(t)
-
-c1,c2,c3,c4 = st.columns(4)
+df = indicators(load(t))
+p = probability(df)
 
 l = df.iloc[-1]
 
+st.header(f"{t}")
+
+# =========================
+# METRICS (RESTORED FULL SET)
+# =========================
+
+c1,c2,c3,c4,c5,c6,c7 = st.columns(7)
+
 c1.metric("Price", round(l["Close"],2))
-c2.metric("RSI", round(l["RSI"],1))
-c3.metric("RVOL", round(l["RVOL"],2))
-c4.metric("Prob%", round(p,1))
-
-# controls
-show_rsi = st.checkbox("Show RSI", value=True)
-overlays = st.multiselect("Overlays", OVERLAYS, default=["EMA20","EMA50"])
-
-st.plotly_chart(chart(df, show_rsi, overlays), use_container_width=True)
+c2.metric("Change", round(((l["Close"]-df.iloc[-2]["Close"])/df.iloc[-2]["Close"])*100,2))
+c3.metric("RSI", round(l["RSI"],1))
+c4.metric("RVOL", round(l["RVOL"],2))
+c5.metric("Prob%", round(p,1))
+c6.metric("EMA20", round(l["EMA20"],2))
+c7.metric("EMA50/200", f"{round(l['EMA50'],1)} | {round(l['EMA200'],1)}")
 
 # =========================
-# EDUCATION (RICH + STRUCTURED)
+# CONTROLS
 # =========================
 
-with st.expander("📘 Deep Research Engine", expanded=True):
+overlays = st.multiselect(
+    "Overlays",
+    OVERLAYS,
+    default=["EMA20","EMA50"]
+)
 
-    st.markdown("### Trend Structure")
+show_rsi = st.checkbox("Show RSI Panel", value=True)
 
-    trend = "Bullish" if l["EMA20"] > l["EMA50"] else "Bearish / Weak"
+st.plotly_chart(chart(df, overlays, show_rsi), use_container_width=True)
 
-    st.write(f"Current regime: **{trend}**")
+# =========================
+# EDUCATION (IMPROVED + NON-REPETITIVE)
+# =========================
+
+with st.expander("📘 Research & Trade Thesis", expanded=True):
+
+    trend = "Bullish" if l["EMA20"] > l["EMA50"] else "Bearish / Transition"
+
+    st.markdown("### Market Structure")
+    st.write(f"Regime: **{trend}**")
 
     st.markdown("### Momentum Interpretation")
 
     if l["RSI"] > 70:
-        st.write("Overbought zone — risk of pullback increases")
+        st.write("Momentum extended — expect mean reversion risk.")
     elif l["RSI"] < 30:
-        st.write("Oversold — reversal probability rises")
+        st.write("Oversold compression — reversal probability increasing.")
     else:
-        st.write("Neutral momentum zone")
+        st.write("Neutral momentum — trend continuation depends on volume.")
 
-    st.markdown("### Volume Behavior")
+    st.markdown("### Volume Intelligence")
 
     if l["RVOL"] > 1.5:
-        st.success("Strong participation (institutional activity likely)")
+        st.success("High participation breakout conditions present.")
     else:
-        st.write("Normal liquidity conditions")
+        st.write("Normal participation — no expansion detected.")
 
-    st.markdown("### Investment Thesis")
+    st.markdown("### Trade Thesis Engine")
 
-    if p > 70:
-        st.success("High probability continuation setup (low-risk momentum trade)")
-    elif p > 50:
-        st.info("Moderate setup — wait for confirmation")
+    if p > 75:
+        st.success("High-probability momentum continuation setup.")
+    elif p > 55:
+        st.info("Moderate setup — wait for confirmation trigger.")
     else:
-        st.warning("Weak setup — avoid or reduce size")
+        st.warning("Low-quality setup — avoid or size down risk.")
 
-    st.markdown("### Key Risk Notes")
+    st.markdown("### Risk Framework")
 
-    st.write("- Trend break below EMA50 invalidates setup")
+    st.write("- EMA50 break invalidates bullish thesis")
     st.write("- Low RVOL = false breakout risk")
-    st.write("- RSI extremes require confirmation")
+    st.write("- RSI extremes require confirmation candle")
