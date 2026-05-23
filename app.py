@@ -12,78 +12,79 @@ from plotly.subplots import make_subplots
 st.set_page_config(layout="wide")
 
 # =========================
-# COLORFUL APP UI
+# SUPER COLORFUL UI (NO GREY TERMINAL LOOK)
 # =========================
 
 st.markdown("""
 <style>
 
-/* App background */
 .stApp {
-    background: linear-gradient(135deg, #eef2ff, #f8fafc);
+    background: linear-gradient(135deg, #0f172a, #1e1b4b, #0f172a);
+    color: white;
 }
 
-/* Section boxes */
-.box {
-    background: white;
-    border-radius: 18px;
-    padding: 12px;
-    margin-bottom: 12px;
-    box-shadow: 0px 6px 20px rgba(0,0,0,0.08);
-}
-
-/* ticker tile */
+/* LEFT PANEL TILE GRID */
 .tile {
-    padding: 12px;
-    border-radius: 14px;
+    padding: 14px;
+    border-radius: 16px;
     text-align: center;
-    font-weight: 600;
+    font-weight: 700;
     cursor: pointer;
-    transition: 0.25s;
-    color: #111827;
-    box-shadow: 0px 3px 10px rgba(0,0,0,0.08);
+    transition: all 0.25s ease;
+    color: white;
+    box-shadow: 0px 6px 18px rgba(0,0,0,0.35);
+    backdrop-filter: blur(10px);
 }
 
-/* hover pop */
+/* hover glow */
 .tile:hover {
-    transform: scale(1.07);
-    box-shadow: 0px 8px 18px rgba(0,0,0,0.15);
+    transform: scale(1.08);
+    box-shadow: 0px 0px 25px rgba(59,130,246,0.6);
 }
 
-/* selected */
+/* active selection */
 .active {
-    border: 3px solid #2563eb;
-    box-shadow: 0px 0px 18px rgba(37,99,235,0.4);
+    outline: 3px solid #22d3ee;
+    box-shadow: 0px 0px 30px rgba(34,211,238,0.5);
 }
 
-/* headings */
-h3 {
-    margin-bottom: 6px;
+/* boxes */
+.box {
+    background: rgba(255,255,255,0.06);
+    border-radius: 20px;
+    padding: 14px;
+    margin-bottom: 14px;
+    box-shadow: 0px 8px 30px rgba(0,0,0,0.3);
+}
+
+/* headers */
+h1, h2, h3 {
+    color: #e0f2fe;
 }
 
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📊 Smart Trading Terminal")
+# =========================
+# STATE
+# =========================
+
+if "ticker" not in st.session_state:
+    st.session_state.ticker = "AAPL"
 
 # =========================
 # DATA
 # =========================
 
 WATCHLIST = ["AAPL","MSFT","NVDA","TSLA","AMZN","META","GOOGL","AMD","PLTR","NFLX","COIN","MSTR"]
-
 HOT = ["SMCI","ARM","SNOW","NET","SHOP","RDDT","CRWD","AVGO"]
 
 OVERLAYS = ["EMA20","EMA50","EMA200"]
-
-if "ticker" not in st.session_state:
-    st.session_state.ticker = "AAPL"
 
 @st.cache_data(ttl=300)
 def load(t):
     df = yf.download(t, period="2y", interval="1d", auto_adjust=True)
     df = df.reset_index()
-    df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
     return df.dropna()
 
 def ind(df):
@@ -102,45 +103,59 @@ def ind(df):
 
     return df.dropna()
 
-# =========================
-# PROBABILITY ENGINE
-# =========================
-
-def prob(df):
+def thesis(df):
     l = df.iloc[-1]
 
-    trend = l["EMA20"] > l["EMA50"]
-    strong = l["EMA50"] > l["EMA200"]
-    momentum = 40 < l["RSI"] < 70
-    volume = l["RVOL"] > 1.5
+    trend = "BULLISH" if l["EMA20"] > l["EMA50"] else "BEARISH"
+    strength = "STRONG" if l["EMA50"] > l["EMA200"] else "WEAK"
+
+    rsi_state = (
+        "OVERBOUGHT" if l["RSI"] > 70 else
+        "OVERSOLD" if l["RSI"] < 30 else
+        "NEUTRAL"
+    )
+
+    vol_state = "HIGH PARTICIPATION" if l["RVOL"] > 1.5 else "NORMAL"
 
     score = (
-        trend * 30 +
-        strong * 20 +
-        momentum * 25 +
-        volume * 25
+        (l["EMA20"] > l["EMA50"]) * 30 +
+        (l["EMA50"] > l["EMA200"]) * 20 +
+        (40 < l["RSI"] < 70) * 25 +
+        (l["RVOL"] > 1.5) * 25
     )
 
-    return min(95, max(20, score))
+    return {
+        "trend": trend,
+        "strength": strength,
+        "rsi": rsi_state,
+        "volume": vol_state,
+        "score": min(95, max(10, score))
+    }
 
 # =========================
-# CHART
+# CHART (CLEAN + LABELED)
 # =========================
 
-def chart(df, overlays, rsi=True):
+def chart(df, overlays, show_rsi=True):
 
     fig = make_subplots(
-        rows=3 if rsi else 2,
+        rows=3 if show_rsi else 2,
         cols=1,
         shared_xaxes=True,
-        row_heights=[0.6,0.25,0.15] if rsi else [0.7,0.3]
+        row_heights=[0.6, 0.25, 0.15] if show_rsi else [0.7, 0.3],
+        vertical_spacing=0.03
     )
 
-    fig.add_trace(go.Scatter(
-        x=df["Date"], y=df["Close"],
-        name="Price",
-        line=dict(color="#111827", width=2)
-    ), row=1, col=1)
+    # PRICE
+    fig.add_trace(
+        go.Scatter(
+            x=df["Date"],
+            y=df["Close"],
+            name="Price",
+            line=dict(color="#38bdf8", width=2)
+        ),
+        row=1, col=1
+    )
 
     if "EMA20" in overlays:
         fig.add_trace(go.Scatter(x=df["Date"], y=df["EMA20"], name="EMA20"), row=1, col=1)
@@ -149,150 +164,187 @@ def chart(df, overlays, rsi=True):
     if "EMA200" in overlays:
         fig.add_trace(go.Scatter(x=df["Date"], y=df["EMA200"], name="EMA200"), row=1, col=1)
 
-    fig.add_trace(go.Bar(
-        x=df["Date"], y=df["Volume"],
-        name="Volume",
-        marker_color="rgba(99,102,241,0.35)"
-    ), row=2, col=1)
+    # VOLUME
+    fig.add_trace(
+        go.Bar(
+            x=df["Date"],
+            y=df["Volume"],
+            name="Volume",
+            marker_color="rgba(34,211,238,0.35)"
+        ),
+        row=2, col=1
+    )
 
-    if rsi:
-        fig.add_trace(go.Scatter(
-            x=df["Date"], y=df["RSI"],
-            name="RSI",
-            line=dict(color="#7c3aed")
-        ), row=3, col=1)
+    # RSI
+    if show_rsi:
+        fig.add_trace(
+            go.Scatter(
+                x=df["Date"],
+                y=df["RSI"],
+                name="RSI",
+                line=dict(color="#a78bfa")
+            ),
+            row=3, col=1
+        )
 
-    fig.update_layout(height=720, template="plotly_white")
+    fig.update_layout(
+        height=750,
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)"
+    )
+
+    fig.update_xaxes(title_text="Time")
+    fig.update_yaxes(title_text="Price", row=1, col=1)
+    fig.update_yaxes(title_text="Volume", row=2, col=1)
 
     return fig
 
 # =========================
-# LAYOUT
+# LAYOUT (LOCKED LEFT/RIGHT)
 # =========================
 
 left, right = st.columns([1.2, 3])
 
 # =========================
-# LEFT PANEL (BIG COLOR BOXES)
+# LEFT PANEL (CLICKABLE TILE GRID ONLY)
 # =========================
 
 with left:
 
-    # WATCHLIST BOX
-    st.markdown('<div class="box"><h3>📌 Watchlist</h3>', unsafe_allow_html=True)
+    st.markdown("## 📌 Watchlist")
 
-    grid = st.columns(3)
+    cols = st.columns(3)
 
     for i, t in enumerate(WATCHLIST):
 
         df = ind(load(t))
-        last = df.iloc[-1]
-        prev = df.iloc[-2]
+        l = df.iloc[-1]
+        p = df.iloc[-2]
 
-        chg = ((last["Close"] - prev["Close"]) / prev["Close"]) * 100
+        chg = ((l["Close"] - p["Close"]) / p["Close"]) * 100
 
-        color = "#dcfce7" if chg > 0 else "#fee2e2"
+        bg = "#10b981" if chg > 0 else "#ef4444"
+
         active = "active" if t == st.session_state.ticker else ""
 
-        with grid[i % 3]:
+        with cols[i % 3]:
 
             st.markdown(
                 f"""
-                <div class="tile {active}" style="background:{color}">
+                <div class="tile {active}" style="background:{bg}">
                     {t}<br>
-                    {round(chg,2)}%
+                    {chg:.2f}%
                 </div>
                 """,
                 unsafe_allow_html=True
             )
 
-            if st.button(f"Select {t}", key=f"w_{t}"):
+            if st.button(t, key=f"sel_{t}"):
                 st.session_state.ticker = t
 
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("## 🔥 Hot Movers")
 
-    # HOT BOX
-    st.markdown('<div class="box"><h3>🔥 Hot Movers</h3>', unsafe_allow_html=True)
-
-    grid2 = st.columns(3)
+    cols2 = st.columns(3)
 
     for i, t in enumerate(HOT):
 
         df = ind(load(t))
-        last = df.iloc[-1]
-        prev = df.iloc[-2]
+        l = df.iloc[-1]
+        p = df.iloc[-2]
 
-        chg = ((last["Close"] - prev["Close"]) / prev["Close"]) * 100
+        chg = ((l["Close"] - p["Close"]) / p["Close"]) * 100
 
-        color = "#dcfce7" if chg > 0 else "#fee2e2"
+        bg = "#22c55e" if chg > 0 else "#f97316"
 
-        with grid2[i % 3]:
+        with cols2[i % 3]:
 
             st.markdown(
                 f"""
-                <div class="tile" style="background:{color}">
+                <div class="tile" style="background:{bg}">
                     {t}<br>
-                    {round(chg,2)}%
+                    {chg:.2f}%
                 </div>
                 """,
                 unsafe_allow_html=True
             )
 
-            if st.button(f"Trade {t}", key=f"h_{t}"):
+            if st.button(t + "_hot", key=f"hot_{t}"):
                 st.session_state.ticker = t
 
-    st.markdown("</div>", unsafe_allow_html=True)
-
 # =========================
-# RIGHT PANEL
+# RIGHT PANEL (FULL ANALYSIS)
 # =========================
 
 t = st.session_state.ticker
-
 df = ind(load(t))
-p = prob(df)
+th = thesis(df)
 
 l = df.iloc[-1]
 
-st.header(f"{t}")
+st.markdown(f"# 📊 {t} Research Terminal")
 
-c1,c2,c3,c4 = st.columns(4)
+# TOP METRICS
+c1, c2, c3, c4 = st.columns(4)
 
-c1.metric("Price", round(l["Close"],2))
-c2.metric("RSI", round(l["RSI"],1))
-c3.metric("RVOL", round(l["RVOL"],2))
-c4.metric("Prob%", round(p,1))
+c1.metric("Price", round(l["Close"], 2))
+c2.metric("RSI", round(l["RSI"], 1))
+c3.metric("RVOL", round(l["RVOL"], 2))
+c4.metric("Score", th["score"])
 
+# CHART CONTROLS
 overlays = st.multiselect("Overlays", OVERLAYS, default=["EMA20","EMA50"])
-rsi = st.checkbox("Show RSI", value=True)
+show_rsi = st.checkbox("RSI Panel", True)
 
-st.plotly_chart(chart(df, overlays, rsi), use_container_width=True)
+st.plotly_chart(chart(df, overlays, show_rsi), use_container_width=True)
 
 # =========================
-# EDUCATION (UNCHANGED BUT CLEAN)
+# DEEP EDUCATION / THESIS ENGINE
 # =========================
 
-with st.expander("📘 Research Engine", expanded=True):
+with st.expander("🧠 Investment Thesis (Deep Analysis)", expanded=True):
 
-    trend = "Bullish" if l["EMA20"] > l["EMA50"] else "Bearish"
+    st.markdown(f"""
+### 🔍 Signal Interpretation
 
-    st.write(f"Trend: **{trend}**")
+- **Trend:** {th["trend"]}
+- **Strength:** {th["strength"]}
+- **Momentum (RSI):** {th["rsi"]}
+- **Volume:** {th["volume"]}
 
-    if l["RSI"] > 70:
-        st.write("Overbought condition")
-    elif l["RSI"] < 30:
-        st.write("Oversold condition")
-    else:
-        st.write("Neutral momentum")
+---
 
-    if l["RVOL"] > 1.5:
-        st.success("High participation detected")
-    else:
-        st.write("Normal volume conditions")
+### 📊 What is driving this view?
 
-    if p > 70:
-        st.success("High probability setup")
-    elif p > 50:
-        st.info("Moderate setup")
-    else:
-        st.warning("Low quality setup")
+- EMA20 vs EMA50 shows **short-term directional bias**
+- EMA50 vs EMA200 defines **macro trend regime**
+- RSI measures **momentum exhaustion vs continuation**
+- RVOL shows **institutional participation**
+
+---
+
+### 🎯 Why this matters
+
+This setup suggests:
+- Trend alignment = {th["trend"] == "BULLISH"}
+- Institutional participation = {l["RVOL"] > 1.5}
+- Momentum regime = {th["rsi"]}
+
+---
+
+### 💡 Trade Thesis (Auto-generated)
+
+If trend + strength align:
+> “Momentum continuation trade likely with trend-following bias”
+
+If mixed signals:
+> “Range / mean reversion conditions dominate”
+
+---
+
+### ⚠️ Risk Notes
+
+- RSI extremes increase reversal risk
+- RVOL spikes may indicate short-term exhaustion
+- EMA200 breakdown invalidates bullish structure
+""")
