@@ -2,49 +2,32 @@ import streamlit as st
 
 st.set_page_config(layout="wide")
 
-st.title("Trading Research Desk")
-
-st.success("App boot successful")
+st.title("Stock Research Dashboard")
 
 ticker = st.selectbox(
-"Ticker",
-["AAPL", "MSFT", "NVDA", "TSLA"]
+    "Select Ticker",
+    ["AAPL", "MSFT", "NVDA", "TSLA"]
 )
 
-st.subheader(ticker)
+st.header(ticker)
 
-c1, c2, c3, c4 = st.columns(4)
+col1, col2, col3, col4 = st.columns(4)
 
-with c1:
-st.metric("Price", "$100")
+with col1:
+    st.metric("Price", "$100")
 
-with c2:
-st.metric("RSI", "58")
+with col2:
+    st.metric("RSI", "58")
 
-with c3:
-st.metric("RVOL", "1.8")
+with col3:
+    st.metric("RVOL", "1.8")
 
-with c4:
-st.metric("Prob %", "67")
+with col4:
+    st.metric("Prob %", "67")
 
+st.line_chart([1, 2, 3, 4, 5, 4, 6])
 
-st.line_chart(
-[1, 2, 3, 2, 5, 4, 6]
-)
-
-with st.expander("Educational Insights"):
-
-```
-st.write(
-    "EMA20 above EMA50 indicates bullish trend structure."
-)
-
-st.write(
-    "RSI below 70 suggests continuation room remains."
-)
-
-st.write(
-    "Elevated RVOL indicates participation expansion."
-)
-```
-
+with st.expander("Education"):
+    st.write("EMA20 above EMA50 = bullish structure")
+    st.write("RSI < 70 = momentum not exhausted")
+    st.write("RVOL > 1.5 = participation expansion")
