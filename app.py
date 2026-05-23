@@ -6,64 +6,10 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # =========================
-# PAGE CONFIG
+# CONFIG
 # =========================
 
 st.set_page_config(layout="wide")
-
-# =========================
-# SUPER COLORFUL UI (NO GREY TERMINAL LOOK)
-# =========================
-
-st.markdown("""
-<style>
-
-.stApp {
-    background: linear-gradient(135deg, #0f172a, #1e1b4b, #0f172a);
-    color: white;
-}
-
-/* LEFT PANEL TILE GRID */
-.tile {
-    padding: 14px;
-    border-radius: 16px;
-    text-align: center;
-    font-weight: 700;
-    cursor: pointer;
-    transition: all 0.25s ease;
-    color: white;
-    box-shadow: 0px 6px 18px rgba(0,0,0,0.35);
-    backdrop-filter: blur(10px);
-}
-
-/* hover glow */
-.tile:hover {
-    transform: scale(1.08);
-    box-shadow: 0px 0px 25px rgba(59,130,246,0.6);
-}
-
-/* active selection */
-.active {
-    outline: 3px solid #22d3ee;
-    box-shadow: 0px 0px 30px rgba(34,211,238,0.5);
-}
-
-/* boxes */
-.box {
-    background: rgba(255,255,255,0.06);
-    border-radius: 20px;
-    padding: 14px;
-    margin-bottom: 14px;
-    box-shadow: 0px 8px 30px rgba(0,0,0,0.3);
-}
-
-/* headers */
-h1, h2, h3 {
-    color: #e0f2fe;
-}
-
-</style>
-""", unsafe_allow_html=True)
 
 # =========================
 # STATE
@@ -73,130 +19,132 @@ if "ticker" not in st.session_state:
     st.session_state.ticker = "AAPL"
 
 # =========================
-# DATA
+# DATA LOADER (FIXED FOR YF SHAPES)
+# =========================
+
+@st.cache_data(ttl=300)
+def load(t):
+
+    df = yf.download(t, period="2y", interval="1d", auto_adjust=True)
+
+    # FIX: flatten multiindex columns if they exist
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
+    df = df.reset_index()
+
+    # FORCE CLEAN NUMERIC TYPES
+    for c in ["Open","High","Low","Close","Volume"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    return df.dropna()
+
+# =========================
+# INDICATORS (FIXED RVOL BUG)
+# =========================
+
+def ind(df):
+
+    df = df.copy()
+
+    df["EMA20"] = df["Close"].ewm(span=20).mean()
+    df["EMA50"] = df["Close"].ewm(span=50).mean()
+    df["EMA200"] = df["Close"].ewm(span=200).mean()
+
+    # RSI
+    delta = df["Close"].diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+
+    rs = gain.rolling(14).mean() / loss.rolling(14).mean()
+    df["RSI"] = 100 - (100 / (1 + rs))
+
+    # VOLUME SAFE FIX
+    df["VOL_MA"] = df["Volume"].rolling(20).mean()
+
+    df["RVOL"] = np.where(
+        df["VOL_MA"] == 0,
+        0,
+        df["Volume"] / df["VOL_MA"]
+    )
+
+    df = df.replace([np.inf, -np.inf], np.nan).dropna()
+
+    return df
+
+# =========================
+# WATCHLISTS
 # =========================
 
 WATCHLIST = ["AAPL","MSFT","NVDA","TSLA","AMZN","META","GOOGL","AMD","PLTR","NFLX","COIN","MSTR"]
 HOT = ["SMCI","ARM","SNOW","NET","SHOP","RDDT","CRWD","AVGO"]
 
-OVERLAYS = ["EMA20","EMA50","EMA200"]
-
-@st.cache_data(ttl=300)
-def load(t):
-    df = yf.download(t, period="2y", interval="1d", auto_adjust=True)
-    df = df.reset_index()
-    return df.dropna()
-
-def ind(df):
-    df["EMA20"] = df["Close"].ewm(span=20).mean()
-    df["EMA50"] = df["Close"].ewm(span=50).mean()
-    df["EMA200"] = df["Close"].ewm(span=200).mean()
-
-    delta = df["Close"].diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    rs = gain.rolling(14).mean() / loss.rolling(14).mean()
-    df["RSI"] = 100 - (100 / (1 + rs))
-
-    df["VOL_MA"] = df["Volume"].rolling(20).mean()
-    df["RVOL"] = df["Volume"] / df["VOL_MA"]
-
-    return df.dropna()
-
-def thesis(df):
-    l = df.iloc[-1]
-
-    trend = "BULLISH" if l["EMA20"] > l["EMA50"] else "BEARISH"
-    strength = "STRONG" if l["EMA50"] > l["EMA200"] else "WEAK"
-
-    rsi_state = (
-        "OVERBOUGHT" if l["RSI"] > 70 else
-        "OVERSOLD" if l["RSI"] < 30 else
-        "NEUTRAL"
-    )
-
-    vol_state = "HIGH PARTICIPATION" if l["RVOL"] > 1.5 else "NORMAL"
-
-    score = (
-        (l["EMA20"] > l["EMA50"]) * 30 +
-        (l["EMA50"] > l["EMA200"]) * 20 +
-        (40 < l["RSI"] < 70) * 25 +
-        (l["RVOL"] > 1.5) * 25
-    )
-
-    return {
-        "trend": trend,
-        "strength": strength,
-        "rsi": rsi_state,
-        "volume": vol_state,
-        "score": min(95, max(10, score))
-    }
-
 # =========================
-# CHART (CLEAN + LABELED)
+# UI STYLE (CLEAN + MODERN)
 # =========================
 
-def chart(df, overlays, show_rsi=True):
+st.markdown("""
+<style>
 
-    fig = make_subplots(
-        rows=3 if show_rsi else 2,
-        cols=1,
-        shared_xaxes=True,
-        row_heights=[0.6, 0.25, 0.15] if show_rsi else [0.7, 0.3],
-        vertical_spacing=0.03
-    )
+.stApp {
+    background: linear-gradient(135deg,#0b1020,#111827,#0b1020);
+    color: white;
+    font-size: 13px;
+}
 
-    # PRICE
-    fig.add_trace(
-        go.Scatter(
-            x=df["Date"],
-            y=df["Close"],
-            name="Price",
-            line=dict(color="#38bdf8", width=2)
-        ),
-        row=1, col=1
-    )
+/* TILE */
+.tile {
+    padding: 10px;
+    border-radius: 14px;
+    text-align: center;
+    font-weight: 600;
+    cursor: pointer;
+    margin: 4px;
+    transition: 0.2s;
+    color: white;
+}
 
-    if "EMA20" in overlays:
-        fig.add_trace(go.Scatter(x=df["Date"], y=df["EMA20"], name="EMA20"), row=1, col=1)
-    if "EMA50" in overlays:
-        fig.add_trace(go.Scatter(x=df["Date"], y=df["EMA50"], name="EMA50"), row=1, col=1)
-    if "EMA200" in overlays:
-        fig.add_trace(go.Scatter(x=df["Date"], y=df["EMA200"], name="EMA200"), row=1, col=1)
+.tile:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 18px rgba(59,130,246,0.5);
+}
 
-    # VOLUME
-    fig.add_trace(
-        go.Bar(
-            x=df["Date"],
-            y=df["Volume"],
-            name="Volume",
-            marker_color="rgba(34,211,238,0.35)"
-        ),
-        row=2, col=1
-    )
+.active {
+    outline: 2px solid #22d3ee;
+}
 
-    # RSI
-    if show_rsi:
-        fig.add_trace(
-            go.Scatter(
-                x=df["Date"],
-                y=df["RSI"],
-                name="RSI",
-                line=dict(color="#a78bfa")
-            ),
-            row=3, col=1
-        )
+/* LEFT PANEL CONTAINER */
+.panel {
+    background: rgba(255,255,255,0.04);
+    border-radius: 18px;
+    padding: 10px;
+}
 
-    fig.update_layout(
-        height=750,
-        template="plotly_dark",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)"
-    )
+/* HEADERS */
+h1,h2,h3 {
+    color: #e5e7eb;
+}
 
-    fig.update_xaxes(title_text="Time")
-    fig.update_yaxes(title_text="Price", row=1, col=1)
-    fig.update_yaxes(title_text="Volume", row=2, col=1)
+</style>
+""", unsafe_allow_html=True)
+
+# =========================
+# CHART
+# =========================
+
+def chart(df):
+
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                        row_heights=[0.7,0.3])
+
+    fig.add_trace(go.Scatter(x=df["Date"], y=df["Close"], name="Price"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df["Date"], y=df["EMA20"], name="EMA20"), row=1, col=1)
+    fig.add_trace(go.Scatter(x=df["Date"], y=df["EMA50"], name="EMA50"), row=1, col=1)
+
+    fig.add_trace(go.Bar(x=df["Date"], y=df["Volume"], name="Volume"), row=2, col=1)
+
+    fig.update_layout(height=650, template="plotly_dark")
 
     return fig
 
@@ -204,147 +152,121 @@ def chart(df, overlays, show_rsi=True):
 # LAYOUT (LOCKED LEFT/RIGHT)
 # =========================
 
-left, right = st.columns([1.2, 3])
+left, right = st.columns([1.1, 3])
 
 # =========================
-# LEFT PANEL (CLICKABLE TILE GRID ONLY)
+# LEFT PANEL (WATCHLIST + HOT STACKED SAME PAGE)
 # =========================
 
 with left:
 
-    st.markdown("## 📌 Watchlist")
+    st.markdown("## 📌 Market")
 
-    cols = st.columns(3)
+    st.markdown("<div class='panel'>", unsafe_allow_html=True)
 
-    for i, t in enumerate(WATCHLIST):
+    def render_list(title, lst):
 
-        df = ind(load(t))
-        l = df.iloc[-1]
-        p = df.iloc[-2]
+        st.markdown(f"### {title}")
 
-        chg = ((l["Close"] - p["Close"]) / p["Close"]) * 100
+        cols = st.columns(3)
 
-        bg = "#10b981" if chg > 0 else "#ef4444"
+        for i, t in enumerate(lst):
 
-        active = "active" if t == st.session_state.ticker else ""
+            df = ind(load(t))
+            last = df.iloc[-1]
+            prev = df.iloc[-2]
 
-        with cols[i % 3]:
+            chg = ((last["Close"] - prev["Close"]) / prev["Close"]) * 100
+            color = "#22c55e" if chg > 0 else "#ef4444"
 
-            st.markdown(
-                f"""
-                <div class="tile {active}" style="background:{bg}">
-                    {t}<br>
-                    {chg:.2f}%
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+            with cols[i % 3]:
 
-            if st.button(t, key=f"sel_{t}"):
-                st.session_state.ticker = t
+                st.markdown(
+                    f"""
+                    <div class="tile" style="background:{color}">
+                        {t}<br>
+                        {chg:.2f}%
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
 
-    st.markdown("## 🔥 Hot Movers")
+                st.button(
+                    t,
+                    key=f"sel_{t}",
+                    on_click=lambda x=t: st.session_state.update({"ticker": x})
+                )
 
-    cols2 = st.columns(3)
+    render_list("Watchlist", WATCHLIST)
+    render_list("Hot Movers", HOT)
 
-    for i, t in enumerate(HOT):
-
-        df = ind(load(t))
-        l = df.iloc[-1]
-        p = df.iloc[-2]
-
-        chg = ((l["Close"] - p["Close"]) / p["Close"]) * 100
-
-        bg = "#22c55e" if chg > 0 else "#f97316"
-
-        with cols2[i % 3]:
-
-            st.markdown(
-                f"""
-                <div class="tile" style="background:{bg}">
-                    {t}<br>
-                    {chg:.2f}%
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-            if st.button(t + "_hot", key=f"hot_{t}"):
-                st.session_state.ticker = t
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================
-# RIGHT PANEL (FULL ANALYSIS)
+# RIGHT PANEL (RESEARCH)
 # =========================
 
 t = st.session_state.ticker
+
 df = ind(load(t))
-th = thesis(df)
 
-l = df.iloc[-1]
+last = df.iloc[-1]
 
-st.markdown(f"# 📊 {t} Research Terminal")
+st.markdown(f"# 📊 {t} Research")
 
-# TOP METRICS
-c1, c2, c3, c4 = st.columns(4)
+c1,c2,c3,c4 = st.columns(4)
 
-c1.metric("Price", round(l["Close"], 2))
-c2.metric("RSI", round(l["RSI"], 1))
-c3.metric("RVOL", round(l["RVOL"], 2))
-c4.metric("Score", th["score"])
+c1.metric("Price", round(last["Close"],2))
+c2.metric("RSI", round(last["RSI"],1))
+c3.metric("RVOL", round(last["RVOL"],2))
+c4.metric("EMA Trend", "Bull" if last["EMA20"] > last["EMA50"] else "Bear")
 
-# CHART CONTROLS
-overlays = st.multiselect("Overlays", OVERLAYS, default=["EMA20","EMA50"])
-show_rsi = st.checkbox("RSI Panel", True)
-
-st.plotly_chart(chart(df, overlays, show_rsi), use_container_width=True)
+st.plotly_chart(chart(df), use_container_width=True)
 
 # =========================
-# DEEP EDUCATION / THESIS ENGINE
+# EDUCATION / THESIS (STABLE)
 # =========================
 
-with st.expander("🧠 Investment Thesis (Deep Analysis)", expanded=True):
+with st.expander("🧠 Thesis & Education", expanded=True):
+
+    trend = "BULLISH" if last["EMA20"] > last["EMA50"] else "BEARISH"
+    strength = "STRONG" if last["EMA50"] > last["EMA200"] else "WEAK"
+    rsi_state = "OVERBOUGHT" if last["RSI"] > 70 else "OVERSOLD" if last["RSI"] < 30 else "NEUTRAL"
 
     st.markdown(f"""
-### 🔍 Signal Interpretation
+### Signal Summary
 
-- **Trend:** {th["trend"]}
-- **Strength:** {th["strength"]}
-- **Momentum (RSI):** {th["rsi"]}
-- **Volume:** {th["volume"]}
-
----
-
-### 📊 What is driving this view?
-
-- EMA20 vs EMA50 shows **short-term directional bias**
-- EMA50 vs EMA200 defines **macro trend regime**
-- RSI measures **momentum exhaustion vs continuation**
-- RVOL shows **institutional participation**
+- Trend: **{trend}**
+- Strength: **{strength}**
+- Momentum: **{rsi_state}**
+- RVOL: **{last['RVOL']:.2f}**
 
 ---
 
-### 🎯 Why this matters
+### Interpretation
 
-This setup suggests:
-- Trend alignment = {th["trend"] == "BULLISH"}
-- Institutional participation = {l["RVOL"] > 1.5}
-- Momentum regime = {th["rsi"]}
-
----
-
-### 💡 Trade Thesis (Auto-generated)
-
-If trend + strength align:
-> “Momentum continuation trade likely with trend-following bias”
-
-If mixed signals:
-> “Range / mean reversion conditions dominate”
+- EMA20 vs EMA50 → short-term direction
+- EMA50 vs EMA200 → macro regime
+- RSI → exhaustion vs continuation
+- RVOL → institutional activity
 
 ---
 
-### ⚠️ Risk Notes
+### Thesis
 
-- RSI extremes increase reversal risk
-- RVOL spikes may indicate short-term exhaustion
-- EMA200 breakdown invalidates bullish structure
+This ticker is currently in a:
+> **{trend} + {strength} regime**
+
+Meaning:
+- Trend-following strategies favored
+- Avoid counter-trend unless RSI extreme
+- Volume confirms participation when RVOL > 1.5
+
+---
+
+### Risk Notes
+
+- RSI > 70 → pullback risk
+- RSI < 30 → rebound opportunity
+- EMA200 break invalidates structure
 """)
